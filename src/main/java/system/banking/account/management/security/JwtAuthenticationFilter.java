@@ -5,6 +5,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -20,11 +21,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final CustomUserDetailsService customUserDetailsService;
+    private final CustomAuthenticationEntryPoint authenticationEntryPoint;
 
     public JwtAuthenticationFilter(JwtService jwtService,
-                                   CustomUserDetailsService customUserDetailsService) {
+                                   CustomUserDetailsService customUserDetailsService,
+                                   CustomAuthenticationEntryPoint authenticationEntryPoint) {
         this.jwtService = jwtService;
         this.customUserDetailsService = customUserDetailsService;
+        this.authenticationEntryPoint = authenticationEntryPoint;
     }
 
     @Override
@@ -64,8 +68,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
         catch (JwtException e) {
                 SecurityContextHolder.clearContext();
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                return;
+
+            authenticationEntryPoint.commence(request,response,
+                    new BadCredentialsException("Invalid or Expired Jwt"));
+            return;
         }
         filterChain.doFilter(request,response);
     }
