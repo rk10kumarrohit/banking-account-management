@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: Banking-Account-Management-System
+  datasource:
+    url: jdbc:postgresql://localhost:5432/bankdb
+    username: postgres
+    password: "@Rohit19"
+
+  jpa:
+    hibernate:
+     ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: 8080
+  error:
+    include-stacktrace: never
+
+jwt:
+  secret: afiufobou423498fswubf#%%Q%qbisufibiw4
+  expiration: 3600000
+
