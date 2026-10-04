@@ -51,11 +51,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             UserDetails userDetails = customUserDetailsService.loadUserByUsername(username);
 
-            UsernamePasswordAuthenticationToken usernamePasswordAuthenticationToken =
-                    new UsernamePasswordAuthenticationToken(userDetails,
-                            null,
-                            userDetails.getAuthorities());
-
             // System.out.println("JWT USERNAME: " + username);
             //System.out.println("JWT AUTHORITIES: " + userDetails.getAuthorities());
 
@@ -63,7 +58,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities()
                 );
-                SecurityContextHolder.getContext().setAuthentication(usernamePasswordAuthenticationToken);
+                SecurityContextHolder.getContext().setAuthentication(authenticationToken);
             }
         }
         catch (JwtException e) {
@@ -74,5 +69,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         filterChain.doFilter(request,response);
+    }
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+
+        String path = request.getServletPath();
+        //System.out.println("JWT FILTER CALLED: " + request.getRequestURI());
+
+        return path.startsWith("/swagger-ui/")
+                || path.startsWith("/v3/api-docs/")
+                || path.startsWith("/auth/");
     }
 }

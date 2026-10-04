@@ -41,13 +41,19 @@ public class SecurityConfig {
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(customAuthenticationEntryPoint)
                         .accessDeniedHandler(customAccessDeniedHandler))
-                .authorizeHttpRequests(auth -> auth.requestMatchers("/auth/**").permitAll()
+                .authorizeHttpRequests(auth -> auth
+                        //Authentication API's
+                        .requestMatchers("/auth/**").permitAll()
+                        //Swagger UI
+                        .requestMatchers("/swagger-ui/**").permitAll()
+                        //Swagger Open API
+                        .requestMatchers("/v3/api-docs/**").permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
-                );;
+                );
         return httpSecurity.build();
     }
     @Bean
