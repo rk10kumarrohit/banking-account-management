@@ -2,19 +2,18 @@ package system.banking.account.management.service;
 
 import jakarta.transaction.Transactional;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
-import system.banking.account.management.dto.AccountRequest;
-import system.banking.account.management.dto.AccountResponse;
-import system.banking.account.management.dto.AccountTransactionResponse;
-import system.banking.account.management.dto.TransactionRequest;
+import system.banking.account.management.config.BankingLimits;
+import system.banking.account.management.dto.*;
 import system.banking.account.management.entity.Account;
+import system.banking.account.management.entity.AccountStatus;
 import system.banking.account.management.entity.AccountTransaction;
 import system.banking.account.management.entity.TransactionType;
-import system.banking.account.management.exception.AccountNotFoundException;
-import system.banking.account.management.exception.DuplicateAccountNumberException;
-import system.banking.account.management.exception.InsufficientBalanceException;
+import system.banking.account.management.exception.*;
 import system.banking.account.management.mapper.AccountMapper;
 import system.banking.account.management.repository.AccountRepository;
 import system.banking.account.management.repository.AccountTransactionRepository;
@@ -38,6 +37,7 @@ public class AccountService {
     public AccountResponse createAccuont(AccountRequest accountRequest) {
 
         Account  account = accountMapper.toEntity(accountRequest);
+        account.setAccountStatus(AccountStatus.ACTIVE);
 
         if(accountRepository.existsByAccount_number(account.getAccount_number())){
             throw new DuplicateAccountNumberException("Account number already exists: " + account.getAccount_number());
@@ -81,6 +81,22 @@ public class AccountService {
         Account account = accountRepository.findById(Id)
                 .orElseThrow(() -> new AccountNotFoundException("Account not found for Id: "+ Id));
 
+        validateAccountIsActive(account);
+        BigDecimal withDrawlAmount = transactionRequest.getAmount();
+        if(withDrawlAmount.compareTo(BankingLimits.MAX_WITHDRAWL) > 0) {
+            throw new TransactionLimitException(
+                    "Maximum withdrawl limit is " + BankingLimits.MAX_WITHDRAWL
+            );
+        }
+
+        BigDecimal remainingBalance = account.getBalance().subtract(withDrawlAmount);
+        if (remainingBalance.compareTo(BankingLimits.MINIMUM_BALANCE) < 0) {
+            throw new TransactionLimitException(
+                    "Account must maintain a minimum balance of "
+                            + BankingLimits.MINIMUM_BALANCE
+            );
+        }
+
         BigDecimal currentBalance =account.getBalance();
         BigDecimal withdrawlAmount = transactionRequest.getAmount();
 
@@ -107,6 +123,8 @@ public class AccountService {
         Account account  = accountRepository.findById(Id)
                 .orElseThrow(() -> new AccountNotFoundException("Account not found for Id: " + Id));
 
+        validateAccountIsActive(account);
+
         account.setBalance(account.getBalance().add(transactionRequest.getAmount()));
         //accountRepository.save(account);
 
@@ -128,27 +146,146 @@ public class AccountService {
         accountRepository.delete(account);
     }
     public List<AccountResponse> minimumBalanceAccounts(BigDecimal amount) {
-            return accountRepository.findAll().stream()
-                    .filter(account -> account.getBalance().compareTo(amount)>=0)
-                    .map(accountMapper::toResponse)
-                    .toList();
+
+            return accountRepository.findMinimumBalanceAccounts(amount)
+                    .stream().map(accountMapper::toResponse).toList();
     }
 
-    public List<AccountTransactionResponse> getTransactions(Long id) {
-        Account account = accountRepository.findById(id)
+    public Page<AccountTransactionResponse> getTransactions(
+            Long accountId,
+            TransactionType type,
+            LocalDate fromDate,
+            LocalDate toDate,
+            int page,
+            int size,
+            String sortBy,
+            String direction) {
+        Account account = accountRepository.findById(accountId)
                 .orElseThrow(() ->
-                     new AccountNotFoundException("Account not found for id: "+ id)
+                     new AccountNotFoundException("Account not found for id: "+ accountId)
                     );
-        List<AccountTransaction> accountTransaction =  accountTransactionRepository.findByAccountOrderByTransactionDateDesc(account);
-        return accountTransaction.stream()
-                .map((e1) -> {
-                    AccountTransactionResponse accountTransactionResponse = new AccountTransactionResponse();
-                    accountTransactionResponse.setId(e1.getId());
-                    accountTransactionResponse.setAmount(e1.getAmount());
-                    accountTransactionResponse.setTransactionDate(e1.getTransactionDate());
-                    accountTransactionResponse.setTransactionType(e1.getTransactionType().name());
-                    return accountTransactionResponse;
-                })
-                .toList();
+        Sort.Direction sortDirection =
+                direction.equalsIgnoreCase("asc")
+                        ? Sort.Direction.ASC
+                        : Sort.Direction.DESC;
+
+        LocalDateTime fromDateTime =
+                fromDate != null
+                        ? fromDate.atStartOfDay()
+                        : null;
+
+        LocalDateTime toDateTime =
+                toDate != null
+                        ? toDate.plusDays(1).atStartOfDay()
+                        : null;
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(sortDirection, sortBy)
+        );
+        Page<AccountTransaction> transactions = accountTransactionRepository.findByAccountAndTransactionDateBetweenOrderByTransactionDateDesc(account,fromDateTime,toDateTime, pageable);
+       return transactions.map(transaction -> new AccountTransactionResponse(
+               transaction.getId(),
+               transaction.getAmount(),
+               transaction.getTransactionDate(),
+               transaction.getTransactionType()
+       ));
+    }
+
+    @Transactional
+    public void transfer(Long fromAccountId, TransferRequest transferRequest) {
+
+        Long toAccountId = transferRequest.getToAccountId();
+        BigDecimal amount = transferRequest.getAmount();
+
+        if(fromAccountId.equals(toAccountId)) {
+            throw new IllegalArgumentException("Source and destination cannot be the same");
+        }
+
+        Account firstAccount;
+        Account secondAccount;
+
+        if (fromAccountId < toAccountId) {
+            firstAccount = accountRepository.findByIdWithLock(fromAccountId).
+                    orElseThrow(() -> new AccountNotFoundException("Source account not found: " + fromAccountId));
+
+            secondAccount = accountRepository.findByIdWithLock(transferRequest.getToAccountId())
+                    .orElseThrow(() -> new AccountNotFoundException("Destination account not found: " + toAccountId));
+
+        }
+
+        else {
+            firstAccount = accountRepository.findByIdWithLock(toAccountId).
+                    orElseThrow(() -> new AccountNotFoundException("Source account not found: " + toAccountId));
+            secondAccount = accountRepository.findByIdWithLock(fromAccountId).
+                    orElseThrow(() -> new AccountNotFoundException("Destination account not found: " + fromAccountId));
+
+        }
+
+        validateAccountIsActive(firstAccount);
+        validateAccountIsActive(secondAccount);
+
+        if (amount.compareTo(BankingLimits.MAX_TRANSFER) > 0) {
+            throw new TransactionLimitException(
+                    "Maximum transfer limit is "
+                            + BankingLimits.MAX_TRANSFER
+            );
+        }
+
+        Account sourceAccount = fromAccountId.equals(firstAccount.getId())
+                ? firstAccount :secondAccount;
+
+        Account destinationAccount = toAccountId.equals(firstAccount.getId())
+                ? firstAccount : secondAccount;
+
+        BigDecimal remainingBalance =
+                sourceAccount.getBalance().subtract(amount);
+
+        if (remainingBalance.compareTo(BigDecimal.ZERO) < 0) {
+            throw new InsufficientBalanceException(
+                    "Insufficient balance"
+            );
+        }
+
+        if (remainingBalance.compareTo(BankingLimits.MINIMUM_BALANCE) < 0) {
+            throw new TransactionLimitException(
+                    "Source account must maintain a minimum balance of "
+                            + BankingLimits.MINIMUM_BALANCE
+            );
+        }
+
+        //Debit source
+        sourceAccount.setBalance(sourceAccount.getBalance().subtract(amount));
+
+        //Credit destination
+        destinationAccount.setBalance(destinationAccount.getBalance().add(amount));
+
+        //Create withdrawl transaction
+        AccountTransaction withdrawl = new AccountTransaction();
+
+        withdrawl.setAccount(sourceAccount);
+        withdrawl.setTransactionType(TransactionType.WITHDRAW);
+        withdrawl.setAmount(amount);
+        withdrawl.setTransactionDate(LocalDateTime.now());
+
+        //Create deposit transaction
+        AccountTransaction deposit = new AccountTransaction();
+
+        deposit.setAccount(destinationAccount);
+        deposit.setAmount(amount);
+        deposit.setTransactionDate(LocalDateTime.now());
+        deposit.setTransactionType(TransactionType.DEPOSIT);
+
+        accountTransactionRepository.save(withdrawl);
+        accountTransactionRepository.save(deposit);
+
+    }
+    private void validateAccountIsActive(Account account) {
+        if (account.getAccountStatus() != AccountStatus.ACTIVE) {
+            throw new AccountInactiveException(
+                    "Transaction not allowed. Account is "
+                            + account.getAccountStatus()
+            );
+        }
     }
 }

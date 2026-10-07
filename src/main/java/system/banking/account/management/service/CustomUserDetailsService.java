@@ -5,6 +5,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import system.banking.account.management.entity.User;
+import system.banking.account.management.entity.UserStatus;
 import system.banking.account.management.repository.UserRepository;
 
 
@@ -19,11 +20,12 @@ public class CustomUserDetailsService implements UserDetailsService {
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
             User user = userRepository.findByUsername(username).
-                    orElseThrow(() -> new UsernameNotFoundException("Usre not found"));
+                    orElseThrow(() -> new UsernameNotFoundException("User not found"));
             return org.springframework.security.core.userdetails.User
                     .withUsername(user.getUsername())
                     .password(user.getPassword())
                     .roles(user.getRole().name())
+                    .disabled(user.getStatus() == UserStatus.BLOCKED)
                     .build();
     }
 }

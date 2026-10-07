@@ -22,4 +22,6 @@ public class AccountRequest {
     @DecimalMin(value = "0.0" , message = "balance cannot be negative")
     private BigDecimal balance;
 
+
+
 }

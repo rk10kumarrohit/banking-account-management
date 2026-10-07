@@ -19,4 +19,6 @@ public class User {
     private String username;
     private String password;
     private Role role;
+    @Enumerated(EnumType.STRING)
+    private UserStatus status;
 }

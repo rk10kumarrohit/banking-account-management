@@ -21,6 +21,9 @@ public class Account {
     private String account_holder_name;
     private BigDecimal balance;
 
+    @Enumerated(value = EnumType.STRING)
+    private AccountStatus accountStatus;
+
     @Version
     private Long version;
 }

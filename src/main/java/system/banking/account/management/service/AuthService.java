@@ -9,6 +9,7 @@ import system.banking.account.management.dto.LoginResponse;
 import system.banking.account.management.dto.UserRequest;
 import system.banking.account.management.dto.UserResponse;
 import system.banking.account.management.entity.User;
+import system.banking.account.management.entity.UserStatus;
 import system.banking.account.management.exception.DuplicateUserException;
 import system.banking.account.management.repository.UserRepository;
 
@@ -37,6 +38,7 @@ public class AuthService {
         user.setUsername(userRequest.getUsername());
         user.setRole(userRequest.getRole());
         user.setPassword(passwordEncoder.encode(userRequest.getPassword()));
+        user.setStatus(UserStatus.ACTIVE);
         userRepository.save(user);
 
         return new UserResponse(user.getId(),user.getUsername(),user.getRole());
